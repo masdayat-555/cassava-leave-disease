@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deteksi Penyakit Singkong - AI</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'cassava-bg': '#f0fdf4',
+            'box-header': '#d1fae5', // Emerald-100 (Header Hijau Muda)
+            'box-body': '#ffffff',   // Body Putih
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Texture Noise Halus */
+    .texture-bg {
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+    }
+
+    .fade-in {
+      animation: fadeIn 0.6s ease-out forwards;
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    @keyframes fadeIn {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+
+  <script type="module">
+    import { Client } from "https://cdn.jsdelivr.net/npm/@gradio/client/+esm";
+
+    let currentFile = null;
+
+    // --- 1. KAMUS TERJEMAHAN (Full Indonesia) ---
+    function translateResult(rawLabel) {
+      const l = rawLabel.toLowerCase();
+      // Format: { title: "Nama Indonesia", sub: "Nama Ilmiah/Detail", isSafe: true/false }
+      if (l.includes("sehat") || l.includes("healthy")) {
+        return { title: "Tanaman Sehat", sub: "Tidak Terdeteksi Penyakit", isSafe: true };
+      } else if (l.includes("cbb") || l.includes("bakteri")) {
+        return { title: "Hawar Bakteri", sub: "Cassava Bacterial Blight (CBB)", isSafe: false };
+      } else if (l.includes("cmd") || l.includes("mosaik")) {
+        return { title: "Penyakit Mosaik", sub: "Cassava Mosaic Disease (CMD)", isSafe: false };
+      } else if (l.includes("cbsd") || l.includes("coklat")) {
+        return { title: "Goresan Coklat", sub: "Cassava Brown Streak (CBSD)", isSafe: false };
+      } else if (l.includes("cgm") || l.includes("hijau")) {
+        return { title: "Bercak Hijau", sub: "Cassava Green Mottle (CGM)", isSafe: false };
+      } else {
+        return { title: "Tidak Diketahui", sub: "Analisa Manual Diperlukan", isSafe: false };
+      }
+    }
+
+    // --- 2. SARAN PENANGANAN ---
+    function getAdvice(rawLabel) {
+      const l = rawLabel.toLowerCase();
+      if (l.includes("sehat")) return "✅ <b>Kondisi Prima:</b> Lanjutkan perawatan rutin. Pastikan drainase tanah lancar dan beri pupuk organik.";
+      if (l.includes("cbb")) return "✂ <b>Tindakan:</b> Pangkas daun yang terinfeksi. Bakar sisa tanaman, jangan jadikan kompos.";
+      if (l.includes("cmd")) return "🔥 <b>Bahaya:</b> Cabut tanaman sakit segera! Basmi kutu kebul (vektor) di area sekitar.";
+      if (l.includes("cbsd")) return "🚜 <b>Panen Dini:</b> Segera panen sebelum pembusukan umbi meluas. Ganti bibit musim depan.";
+      if (l.includes("cgm")) return "💧 <b>Solusi:</b> Semprotkan air sabun atau akarisida di bawah daun untuk membasmi tungau.";
+      return "⚠ Konsultasikan dengan penyuluh pertanian terdekat.";
+    }
+
+    // --- PREVIEW IMAGE ---
+    window.handleFile = function (input) {
+      if (input.files && input.files[0]) {
+        currentFile = input.files[0];
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          document.getElementById('previewImg').src = e.target.result;
+          document.getElementById('previewImg').classList.remove('hidden');
+          document.getElementById('uploadPlaceholder').classList.add('hidden');
+          document.getElementById('btnClear').classList.remove('hidden');
+
+          const btn = document.getElementById('btnSubmit');
+          btn.disabled = false;
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+        reader.readAsDataURL(currentFile);
+      }
+    }
+
+    // --- RESET APLIKASI ---
+    window.resetApp = function () {
+      currentFile = null;
+      document.getElementById('fileInput').value = "";
+      document.getElementById('previewImg').classList.add('hidden');
+      document.getElementById('uploadPlaceholder').classList.remove('hidden');
+      document.getElementById('btnClear').classList.add('hidden');
+
+      // Reset Tampilan Default
+      document.getElementById('diagnosisContent').innerHTML = `
+                <div class="text-center opacity-50">
+                    <i class="fa-solid fa-microscope text-4xl mb-3 text-emerald-200"></i>
+                    <p class="text-sm italic text-gray-400">Hasil diagnosis akan muncul di sini</p>
+                </div>
+            `;
+      document.getElementById('saranContent').innerHTML = `
+                <div class="text-center opacity-50">
+                    <i class="fa-solid fa-clipboard-list text-4xl mb-3 text-emerald-200"></i>
+                    <p class="text-sm italic text-gray-400">Saran penanganan akan muncul di sini</p>
+                </div>
+            `;
+
+      const btn = document.getElementById('btnSubmit');
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+
+    // --- JALANKAN AI ---
+    window.runAI = async function () {
+      if (!currentFile) return alert("Harap pilih gambar terlebih dahulu!");
+
+      const btn = document.getElementById('btnSubmit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menganalisa...';
+
+      try {
+        const client = await Client.connect("Dayat555/Froge");
+        const result = await client.predict("/deteksi", { image: currentFile });
+
+        const rawLabel = result.data[0].label || result.data[0];
+        const infoStr = result.data[1];
+
+        updateUI(rawLabel, infoStr);
+
+      } catch (err) {
+        alert("Terjadi Kesalahan: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "Kirim & Analisa";
+      }
+    }
+
+    // --- UPDATE UI ---
+    function updateUI(rawLabel, infoStr) {
+      const data = translateResult(rawLabel);
+      let percent = "0%";
+      try { percent = parseFloat(infoStr.replace(/[^0-9.]/g, '')) + "%"; } catch (e) { }
+
+      // Update Papan DIAGNOSIS (Bahasa Indonesia)
+      document.getElementById('diagnosisContent').innerHTML = `
+                <div class="text-center w-full fade-in flex flex-col items-center justify-center h-full">
+                    <h3 class="text-2xl lg:text-3xl font-bold text-emerald-900 mb-1 tracking-wide leading-tight">
+                        ${data.title}
+                    </h3>
+                    <p class="text-emerald-600 text-sm font-semibold mb-5 uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
+                        ${data.sub}
+                    </p>
+                    
+                    <div class="flex items-center gap-3">
+                         <div class="bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
+                            <span class="text-gray-600 text-xs font-mono font-bold">Akurasi: ${percent}</span>
+                        </div>
+                        <span class="${data.isSafe ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'} px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border shadow-sm">
+                            ${data.isSafe ? 'SEHAT' : 'SAKIT'}
+                        </span>
+                    </div>
+                </div>
+            `;
+
+      // Update Papan SARAN
+      document.getElementById('saranContent').innerHTML = `
+                <div class="text-center px-6 fade-in flex flex-col items-center justify-center h-full">
+                    <p class="text-gray-700 text-base lg:text-lg leading-relaxed font-medium">
+                        ${getAdvice(rawLabel)}
+                    </p>
+                </div>
+            `;
+
+      // Update History Tabel
+      const table = document.getElementById('historyTable');
+      const now = new Date();
+      const timeString = now.getHours() + ":" + String(now.getMinutes()).padStart(2, '0');
+
+      const row = `
+                <tr class="hover:bg-emerald-50 transition border-b border-gray-100 group">
+                    <td class="px-6 py-4 text-gray-500 font-mono text-xs">${timeString}</td>
+                    <td class="px-6 py-4"><img src="${document.getElementById('previewImg').src}" class="w-10 h-10 rounded-lg object-cover border border-emerald-200 shadow-sm group-hover:scale-110 transition"></td>
+                    <td class="px-6 py-4">
+                        <div class="font-bold text-gray-800 text-sm">${data.title}</div>
+                        <div class="text-xs text-gray-500">${data.sub}</div>
+                    </td>
+                    <td class="px-6 py-4 text-xs font-mono text-gray-500">${percent}</td>
+                    <td class="px-6 py-4">
+                        <span class="${data.isSafe ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'} border px-2 py-1 rounded-md text-[10px] font-bold uppercase">
+                            ${data.isSafe ? 'AMAN' : 'BAHAYA'}
+                        </span>
+                    </td>
+                </tr>
+            `;
+      table.insertAdjacentHTML('afterbegin', row);
+    }
+  </script>
+</head>
+
+<body class="bg-cassava-bg min-h-screen font-sans text-slate-800">
+  <div class="w-full max-w-[1920px] mx-auto px-4 md:px-8 lg:px-12 py-6">
+
+    <header
+      class="mb-8 border-b border-emerald-200/70 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-3 mb-1">
+          <div class="text-emerald-600 text-3xl drop-shadow-sm">
+            <i class="fa-solid fa-leaf"></i>
+          </div>
+          <h1 class="text-3xl font-bold text-emerald-950 tracking-tight">Deteksi Penyakit Singkong</h1>
+        </div>
+        <p class="text-emerald-700/70 text-sm font-medium ml-1">Alat Diagnosis Cerdas Berbasis AI • ConvNeXt V2</p>
+      </div>
+      <div class="hidden md:block">
+        <span
+          class="bg-white border border-emerald-200 text-emerald-700 text-xs px-3 py-1 rounded-full shadow-sm font-mono flex items-center gap-2">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          Sistem Online
+        </span>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10 items-stretch">
+
+      <div class="flex flex-col gap-4 h-full">
+        <div
+          class="bg-white rounded-xl shadow-sm border border-emerald-100 overflow-hidden flex flex-col h-full hover:shadow-md transition duration-300 group">
+          <div
+            class="bg-emerald-50 px-5 py-3 border-b border-emerald-100 flex justify-between items-center backdrop-blur-sm">
+            <span class="text-emerald-800 font-bold text-xs tracking-wider uppercase flex items-center gap-2">
+              <i class="fa-solid fa-upload"></i> Input Gambar
+            </span>
+            <i class="fa-regular fa-image text-emerald-500 transition group-hover:text-emerald-700"></i>
+          </div>
+
+          <div class="p-4 flex-grow flex flex-col">
+            <div
+              class="relative w-full h-full min-h-[350px] lg:min-h-[450px] bg-slate-50/50 rounded-lg border-2 border-dashed border-emerald-200 hover:border-emerald-500 hover:bg-emerald-50/30 transition cursor-pointer flex items-center justify-center group overflow-hidden"
+              onclick="document.getElementById('fileInput').click()">
+
+              <input type="file" id="fileInput" accept="image/*" class="hidden" onchange="handleFile(this)">
+
+              <button id="btnClear" onclick="event.stopPropagation(); resetApp()"
+                class="hidden absolute top-4 right-4 bg-white text-red-500 rounded-full w-9 h-9 flex items-center justify-center shadow-md hover:shadow-lg hover:bg-red-50 z-20 cursor-pointer transition transform hover:scale-105 border border-red-100">
+                <i class="fa-solid fa-times"></i>
+              </button>
+
+              <div id="uploadPlaceholder" class="text-center group-hover:scale-105 transition duration-300 p-6">
+                <div
+                  class="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-5 text-4xl text-emerald-500 shadow-sm border border-emerald-100 group-hover:border-emerald-300 group-hover:text-emerald-600 transition">
+                  <i class="fa-solid fa-cloud-arrow-up"></i>
+                </div>
+                <h3 class="text-emerald-900 font-semibold text-lg">Unggah Foto Daun</h3>
+                <p class="text-emerald-600/70 text-sm mt-2">Klik atau seret foto ke sini</p>
+              </div>
+
+              <img id="previewImg"
+                class="hidden absolute inset-0 w-full h-full object-contain p-2 transition duration-500 group-hover:scale-105"
+                alt="Preview" />
+            </div>
+          </div>
+        </div>
+
+        <button id="btnSubmit" onclick="runAI()" disabled
+          class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200/50 transition duration-200 text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-[0.99] flex items-center justify-center gap-3 border border-emerald-500/20">
+          Kirim & Analisa
+        </button>
+      </div>
+
+      <div class="flex flex-col gap-6 h-full">
+
+        <div
+          class="flex-1 flex flex-col rounded-xl overflow-hidden shadow-sm border border-emerald-200 hover:shadow-md transition duration-300 bg-white">
+          <div class="bg-box-header relative text-center py-3 border-b border-emerald-200">
+            <h2
+              class="text-emerald-800 font-bold text-sm tracking-[0.2em] uppercase relative z-10 flex items-center justify-center gap-2">
+              <i class="fa-solid fa-stethoscope text-emerald-600"></i> Hasil Diagnosis
+            </h2>
+          </div>
+          <div class="bg-box-body relative flex-grow p-6 flex items-center justify-center min-h-[200px]">
+            <div class="absolute inset-0 texture-bg mix-blend-multiply pointer-events-none"></div>
+
+            <div id="diagnosisContent" class="relative z-10 w-full h-full flex items-center justify-center">
+              <div class="text-center opacity-50">
+                <i class="fa-solid fa-microscope text-4xl mb-3 text-emerald-200"></i>
+                <p class="text-sm italic text-gray-400">Hasil diagnosis akan muncul di sini</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="flex-1 flex flex-col rounded-xl overflow-hidden shadow-sm border border-emerald-200 hover:shadow-md transition duration-300 bg-white">
+          <div class="bg-box-header relative text-center py-3 border-b border-emerald-200">
+            <h2
+              class="text-emerald-800 font-bold text-sm tracking-[0.2em] uppercase relative z-10 flex items-center justify-center gap-2">
+              <i class="fa-solid fa-lightbulb text-emerald-600"></i> Saran Penanganan
+            </h2>
+          </div>
+          <div class="bg-box-body relative flex-grow p-6 flex items-center justify-center min-h-[200px]">
+            <div class="absolute inset-0 texture-bg mix-blend-multiply pointer-events-none"></div>
+
+            <div id="saranContent" class="relative z-10 w-full h-full flex items-center justify-center">
+              <div class="text-center opacity-50">
+                <i class="fa-solid fa-clipboard-list text-4xl mb-3 text-emerald-200"></i>
+                <p class="text-sm italic text-gray-400">Saran penanganan akan muncul di sini</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-emerald-100 overflow-hidden">
+      <div class="px-6 py-4 border-b border-emerald-50 bg-emerald-50/30 flex items-center gap-2">
+        <i class="fa-solid fa-clock-rotate-left text-emerald-500"></i>
+        <h3 class="text-emerald-800 font-bold text-sm tracking-wide uppercase">Riwayat Analisis</h3>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="text-emerald-600/70 text-xs font-bold uppercase border-b border-emerald-50 bg-white">
+              <th class="px-6 py-4 w-1/12">Waktu</th>
+              <th class="px-6 py-4 w-1/12">Foto</th>
+              <th class="px-6 py-4 w-3/12">Diagnosis</th>
+              <th class="px-6 py-4 w-3/12">Akurasi</th>
+              <th class="px-6 py-4 w-2/12">Status</th>
+            </tr>
+          </thead>
+          <tbody id="historyTable" class="divide-y divide-emerald-50 text-sm">
+          </tbody>
+        </table>
+      </div>
+      <div id="emptyHistory" class="text-center py-8 text-emerald-400/70 text-xs italic bg-emerald-50/20">
+        Belum ada data riwayat.
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Sembunyikan pesan empty history jika ada data
+    const observer = new MutationObserver((mutations) => {
+      const table = document.getElementById('historyTable');
+      const emptyMsg = document.getElementById('emptyHistory');
+      if (table.children.length > 0) emptyMsg.style.display = 'none';
+    });
+    observer.observe(document.getElementById('historyTable'), { childList: true });
+  </script>
+</body>
+
+</html>
