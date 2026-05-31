@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Deteksi Penyakit Singkong - AI</title>
+  <title>Deteksi Penyakit Singkong - Froge AI</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -16,8 +16,8 @@
         extend: {
           colors: {
             'cassava-bg': '#f0fdf4',
-            'box-header': '#d1fae5', // Emerald-100 (Header Hijau Muda)
-            'box-body': '#ffffff',   // Body Putih
+            'box-header': '#d1fae5',
+            'box-body': '#ffffff',
           },
           fontFamily: {
             sans: ['Inter', 'sans-serif'],
@@ -28,7 +28,6 @@
   </script>
 
   <style>
-    /* Texture Noise Halus */
     .texture-bg {
       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
     }
@@ -48,38 +47,90 @@
   </style>
 
   <script type="module">
-    import { Client } from "https://cdn.jsdelivr.net/npm/@gradio/client/+esm";
+    import {
+      Client
+    } from "https://cdn.jsdelivr.net/npm/@gradio/client/+esm";
 
     let currentFile = null;
 
-    // --- 1. KAMUS TERJEMAHAN (Full Indonesia) ---
+    // --- 1. KAMUS TERJEMAHAN (Diupdate untuk Backend Froge) ---
     function translateResult(rawLabel) {
       const l = rawLabel.toLowerCase();
-      // Format: { title: "Nama Indonesia", sub: "Nama Ilmiah/Detail", isSafe: true/false }
-      if (l.includes("sehat") || l.includes("healthy")) {
-        return { title: "Tanaman Sehat", sub: "Tidak Terdeteksi Penyakit", isSafe: true };
+
+      // -- STATUS VALIDASI (Ditolak/Meragukan) --
+      if (l.includes("ditolak")) {
+        return {
+          title: "Foto Ditolak",
+          sub: "Validasi Gagal",
+          isSafe: false,
+          isError: true // Flag baru untuk warna merah gelap
+        };
+      } else if (l.includes("meragukan")) {
+        return {
+          title: "Hasil Meragukan",
+          sub: "AI Tidak Yakin",
+          isSafe: false,
+          isWarning: true // Flag baru untuk warna kuning/orange
+        };
+      }
+
+      // -- DIAGNOSIS PENYAKIT --
+      else if (l.includes("sehat") || l.includes("healthy")) {
+        return {
+          title: "Tanaman Sehat",
+          sub: "Tidak Terdeteksi Penyakit",
+          isSafe: true
+        };
       } else if (l.includes("cbb") || l.includes("bakteri")) {
-        return { title: "Hawar Bakteri", sub: "Cassava Bacterial Blight (CBB)", isSafe: false };
+        return {
+          title: "Hawar Bakteri",
+          sub: "Cassava Bacterial Blight (CBB)",
+          isSafe: false
+        };
       } else if (l.includes("cmd") || l.includes("mosaik")) {
-        return { title: "Penyakit Mosaik", sub: "Cassava Mosaic Disease (CMD)", isSafe: false };
+        return {
+          title: "Penyakit Mosaik",
+          sub: "Cassava Mosaic Disease (CMD)",
+          isSafe: false
+        };
       } else if (l.includes("cbsd") || l.includes("coklat")) {
-        return { title: "Goresan Coklat", sub: "Cassava Brown Streak (CBSD)", isSafe: false };
+        return {
+          title: "Goresan Coklat",
+          sub: "Cassava Brown Streak (CBSD)",
+          isSafe: false
+        };
       } else if (l.includes("cgm") || l.includes("hijau")) {
-        return { title: "Bercak Hijau", sub: "Cassava Green Mottle (CGM)", isSafe: false };
+        return {
+          title: "Bercak Hijau",
+          sub: "Cassava Green Mottle (CGM)",
+          isSafe: false
+        };
       } else {
-        return { title: "Tidak Diketahui", sub: "Analisa Manual Diperlukan", isSafe: false };
+        return {
+          title: "Tidak Diketahui",
+          sub: rawLabel, // Tampilkan raw label jika tidak dikenali
+          isSafe: false,
+          isWarning: true
+        };
       }
     }
 
-    // --- 2. SARAN PENANGANAN ---
-    function getAdvice(rawLabel) {
+    // --- 2. SARAN PENANGANAN (Diupdate) ---
+    function getAdvice(rawLabel, infoStr) {
       const l = rawLabel.toLowerCase();
+
+      // Respon untuk Validasi
+      if (l.includes("ditolak")) return "❌ <b>Upload Ulang:</b> " + infoStr;
+      if (l.includes("meragukan")) return "📸 <b>Saran Foto:</b> Pastikan cahaya cukup, fokus ke satu daun, dan jangan terlalu jauh.";
+
+      // Respon Penyakit
       if (l.includes("sehat")) return "✅ <b>Kondisi Prima:</b> Lanjutkan perawatan rutin. Pastikan drainase tanah lancar dan beri pupuk organik.";
       if (l.includes("cbb")) return "✂ <b>Tindakan:</b> Pangkas daun yang terinfeksi. Bakar sisa tanaman, jangan jadikan kompos.";
       if (l.includes("cmd")) return "🔥 <b>Bahaya:</b> Cabut tanaman sakit segera! Basmi kutu kebul (vektor) di area sekitar.";
       if (l.includes("cbsd")) return "🚜 <b>Panen Dini:</b> Segera panen sebelum pembusukan umbi meluas. Ganti bibit musim depan.";
       if (l.includes("cgm")) return "💧 <b>Solusi:</b> Semprotkan air sabun atau akarisida di bawah daun untuk membasmi tungau.";
-      return "⚠ Konsultasikan dengan penyuluh pertanian terdekat.";
+
+      return "⚠ " + infoStr;
     }
 
     // --- PREVIEW IMAGE ---
@@ -109,7 +160,6 @@
       document.getElementById('uploadPlaceholder').classList.remove('hidden');
       document.getElementById('btnClear').classList.add('hidden');
 
-      // Reset Tampilan Default
       document.getElementById('diagnosisContent').innerHTML = `
                 <div class="text-center opacity-50">
                     <i class="fa-solid fa-microscope text-4xl mb-3 text-emerald-200"></i>
@@ -128,25 +178,31 @@
       btn.classList.add('opacity-50', 'cursor-not-allowed');
     }
 
-    // --- JALANKAN AI ---
+    // --- JALANKAN AI (BACKEND BARU: Froge) ---
     window.runAI = async function () {
       if (!currentFile) return alert("Harap pilih gambar terlebih dahulu!");
 
       const btn = document.getElementById('btnSubmit');
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menganalisa...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memeriksa Validitas...';
 
       try {
+        // === UPDATE DISINI: Menggunakan Space Baru ===
         const client = await Client.connect("Dayat555/Froge");
-        const result = await client.predict("/deteksi", { image: currentFile });
 
+        const result = await client.predict("/deteksi", {
+          image: currentFile
+        });
+
+        // Parsing hasil dari tuple [Label, Textbox]
         const rawLabel = result.data[0].label || result.data[0];
         const infoStr = result.data[1];
 
         updateUI(rawLabel, infoStr);
 
       } catch (err) {
-        alert("Terjadi Kesalahan: " + err.message);
+        alert("Gagal terhubung ke Server Froge: " + err.message);
+        console.error(err);
       } finally {
         btn.disabled = false;
         btn.innerHTML = "Kirim & Analisa";
@@ -156,35 +212,55 @@
     // --- UPDATE UI ---
     function updateUI(rawLabel, infoStr) {
       const data = translateResult(rawLabel);
-      let percent = "0%";
-      try { percent = parseFloat(infoStr.replace(/[^0-9.]/g, '')) + "%"; } catch (e) { }
 
-      // Update Papan DIAGNOSIS (Bahasa Indonesia)
+      // Ekstrak persentase dari string info (misal: "Keyakinan: 98.5%")
+      let percent = "-";
+      try {
+        const match = infoStr.match(/(\d+(\.\d+)?)%/);
+        if (match) percent = match[0];
+      } catch (e) { }
+
+      // Tentukan Warna Badge
+      let badgeClass = "bg-red-100 text-red-700 border-red-200"; // Default Sakit
+      let badgeText = "SAKIT";
+
+      if (data.isSafe) {
+        badgeClass = "bg-emerald-100 text-emerald-700 border-emerald-200";
+        badgeText = "SEHAT";
+      } else if (data.isError) {
+        badgeClass = "bg-slate-800 text-white border-slate-600";
+        badgeText = "INVALID";
+      } else if (data.isWarning) {
+        badgeClass = "bg-amber-100 text-amber-700 border-amber-200";
+        badgeText = "RAGU";
+      }
+
+      // Update Papan DIAGNOSIS
       document.getElementById('diagnosisContent').innerHTML = `
                 <div class="text-center w-full fade-in flex flex-col items-center justify-center h-full">
-                    <h3 class="text-2xl lg:text-3xl font-bold text-emerald-900 mb-1 tracking-wide leading-tight">
+                    <h3 class="text-2xl lg:text-3xl font-bold ${data.isError ? 'text-slate-800' : 'text-emerald-900'} mb-1 tracking-wide leading-tight">
                         ${data.title}
                     </h3>
-                    <p class="text-emerald-600 text-sm font-semibold mb-5 uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
+                    <p class="${data.isError ? 'text-slate-500 bg-slate-100' : 'text-emerald-600 bg-emerald-50'} text-sm font-semibold mb-5 uppercase tracking-wider px-3 py-1 rounded-full border border-opacity-50">
                         ${data.sub}
                     </p>
                     
                     <div class="flex items-center gap-3">
                          <div class="bg-gray-100 px-3 py-1 rounded-full border border-gray-200">
-                            <span class="text-gray-600 text-xs font-mono font-bold">Akurasi: ${percent}</span>
+                            <span class="text-gray-600 text-xs font-mono font-bold">Score: ${percent}</span>
                         </div>
-                        <span class="${data.isSafe ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'} px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border shadow-sm">
-                            ${data.isSafe ? 'SEHAT' : 'SAKIT'}
+                        <span class="${badgeClass} px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest border shadow-sm">
+                            ${badgeText}
                         </span>
                     </div>
                 </div>
             `;
 
-      // Update Papan SARAN
+      // Update Papan SARAN (Isinya deskripsi error/saran medis)
       document.getElementById('saranContent').innerHTML = `
                 <div class="text-center px-6 fade-in flex flex-col items-center justify-center h-full">
                     <p class="text-gray-700 text-base lg:text-lg leading-relaxed font-medium">
-                        ${getAdvice(rawLabel)}
+                        ${getAdvice(rawLabel, infoStr)}
                     </p>
                 </div>
             `;
@@ -200,12 +276,12 @@
                     <td class="px-6 py-4"><img src="${document.getElementById('previewImg').src}" class="w-10 h-10 rounded-lg object-cover border border-emerald-200 shadow-sm group-hover:scale-110 transition"></td>
                     <td class="px-6 py-4">
                         <div class="font-bold text-gray-800 text-sm">${data.title}</div>
-                        <div class="text-xs text-gray-500">${data.sub}</div>
+                        <div class="text-xs text-gray-500 truncate max-w-[150px]">${data.sub}</div>
                     </td>
                     <td class="px-6 py-4 text-xs font-mono text-gray-500">${percent}</td>
                     <td class="px-6 py-4">
-                        <span class="${data.isSafe ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'} border px-2 py-1 rounded-md text-[10px] font-bold uppercase">
-                            ${data.isSafe ? 'AMAN' : 'BAHAYA'}
+                        <span class="${badgeClass} border px-2 py-1 rounded-md text-[10px] font-bold uppercase">
+                            ${badgeText}
                         </span>
                     </td>
                 </tr>
@@ -227,7 +303,7 @@
           </div>
           <h1 class="text-3xl font-bold text-emerald-950 tracking-tight">Deteksi Penyakit Singkong</h1>
         </div>
-        <p class="text-emerald-700/70 text-sm font-medium ml-1">Alat Diagnosis Cerdas Berbasis AI • ConvNeXt V2</p>
+        <p class="text-emerald-700/70 text-sm font-medium ml-1">Smart Validator (SigLIP) + Specialist (ConvNeXt)</p>
       </div>
       <div class="hidden md:block">
         <span
@@ -236,7 +312,7 @@
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          Sistem Online
+          Server Froge: Online
         </span>
       </div>
     </header>
@@ -315,7 +391,7 @@
           <div class="bg-box-header relative text-center py-3 border-b border-emerald-200">
             <h2
               class="text-emerald-800 font-bold text-sm tracking-[0.2em] uppercase relative z-10 flex items-center justify-center gap-2">
-              <i class="fa-solid fa-lightbulb text-emerald-600"></i> Saran Penanganan
+              <i class="fa-solid fa-lightbulb text-emerald-600"></i> Keterangan / Saran
             </h2>
           </div>
           <div class="bg-box-body relative flex-grow p-6 flex items-center justify-center min-h-[200px]">
@@ -324,7 +400,7 @@
             <div id="saranContent" class="relative z-10 w-full h-full flex items-center justify-center">
               <div class="text-center opacity-50">
                 <i class="fa-solid fa-clipboard-list text-4xl mb-3 text-emerald-200"></i>
-                <p class="text-sm italic text-gray-400">Saran penanganan akan muncul di sini</p>
+                <p class="text-sm italic text-gray-400">Info detail akan muncul di sini</p>
               </div>
             </div>
           </div>
@@ -345,9 +421,9 @@
             <tr class="text-emerald-600/70 text-xs font-bold uppercase border-b border-emerald-50 bg-white">
               <th class="px-6 py-4 w-1/12">Waktu</th>
               <th class="px-6 py-4 w-1/12">Foto</th>
-              <th class="px-6 py-4 w-3/12">Diagnosis</th>
-              <th class="px-6 py-4 w-3/12">Akurasi</th>
-              <th class="px-6 py-4 w-2/12">Status</th>
+              <th class="px-6 py-4 w-3/12">Status</th>
+              <th class="px-6 py-4 w-3/12">Score</th>
+              <th class="px-6 py-4 w-2/12">Label</th>
             </tr>
           </thead>
           <tbody id="historyTable" class="divide-y divide-emerald-50 text-sm">
@@ -362,13 +438,14 @@
   </div>
 
   <script>
-    // Sembunyikan pesan empty history jika ada data
     const observer = new MutationObserver((mutations) => {
       const table = document.getElementById('historyTable');
       const emptyMsg = document.getElementById('emptyHistory');
       if (table.children.length > 0) emptyMsg.style.display = 'none';
     });
-    observer.observe(document.getElementById('historyTable'), { childList: true });
+    observer.observe(document.getElementById('historyTable'), {
+      childList: true
+    });
   </script>
 </body>
 
